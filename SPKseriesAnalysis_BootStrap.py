@@ -165,21 +165,21 @@ wavformPathway = '/Users/caihuaizhen/Box Sync (huaizhen.cai@pennmedicine.upenn.e
 # wavformPathway = '/home/huaizhen/Documents/MonkeyAVproj/data/Fitresults/wavformStruct/'
 
 
+#################################bootstrap parameters
 balanceSamples = True # whether balance samples across conditions by adding bootstraped samples to each condition
-popSampTimes =5
+popSampTimes =100
 resolutionred = 5 # reduce temporal resolotion of the decoding by this scale, original temporal resolution:0.01
-
 # 2 task related variables
 psthGroupCols = ['trialMod','snr-shift']
 filterdict = {'trialMod':['a','av'],'respLabel':['hit'],'AVoffset':[90,120]}
 linregCols = ['snr-shift','trialMod']
-
 #tim for each datapoint in psth, 0 is cooonset
 timwinStart = [-1,0.5]#align2coo [-0.9,1] align2js [-1.2,0] align2DT [-1,0.5]
 bin = 50/1000 
 fontsizeNo = 20# 38 for tranjectory plot
 fontnameStr = 'Arial'#'DejaVu Sans'
 figformat = 'svg'
+################################
 
 start_time = time.monotonic()
 if __name__ == '__main__':
