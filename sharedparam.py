@@ -94,7 +94,7 @@ def neuronfilterDF(Pathway,STRFexcelPath,method,Monkey,STRF='all'):
     driftedUnites = list(dfinspect[dfinspect['driftYES/NO/MAYBE(1,0,2)'].isin([0])]['session_cls'].values)
     df_avMod_all_sig = df_avMod_all_sig[df_avMod_all_sig['session_cls'].isin(driftedUnites)]
     # print('after remove drifting (only keep 0 drift) : '+str(len(df_avMod_all_sig['session_cls'].unique())))      
-    ##### check usable neurons in each session
+    # ##### check usable neurons in each session
     # df_usableBYsess=df_avMod_all_sig.drop_duplicates(subset='session_cls',keep='first')
     # print('total usable neurons in each session in '+Monkey)
     # print(df_usableBYsess.groupby('session').size().reset_index())
