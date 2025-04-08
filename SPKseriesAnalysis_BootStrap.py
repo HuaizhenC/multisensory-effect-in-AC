@@ -26,7 +26,7 @@ def pickneuronpopulations(Monkey,STRFstr):
     # print(df_avMod_all_sig_unique.groupby('STRFsig').size().to_string())
     return df_avMod_all_sig
 # sample trials of each condition for each neuron
-def sampTrials(Monkey,Date):
+def sampTrials(Monkey,Date,alignKeys,df_avMod_all_sig):
     # initialize dataframe to save psth time series data of each neuron
     AllSU_psth_condAve = pd.DataFrame()
     AllSU_psth_trialBYtrial = pd.DataFrame()
@@ -285,7 +285,6 @@ wavformPathway = '/Users/caihuaizhen/Box Sync (huaizhen.cai@pennmedicine.upenn.e
 # STRFexcelPath = '/home/huaizhen/Documents/MonkeyAVproj/data/Fitresults/STRF/'
 # wavformPathway = '/home/huaizhen/Documents/MonkeyAVproj/data/Fitresults/wavformStruct/'
 
-
 #################################bootstrap parameters
 balanceSamples = True # whether balance samples across conditions by adding bootstraped samples to each condition
 popSampTimes =5
@@ -310,10 +309,10 @@ if __name__ == '__main__':
             psth_proj_df_BSall = pd.DataFrame()
             for bs in range(popSampTimes):
                 for Monkey,Date in MonkeyDate_all.items():    
-                    # randomly pick 30 strf/nstrf nuerons from the current monkey
+                    # randomly pick 30 usable strf/nstrf nuerons from the current monkey
                     df_avMod_all_sig = pickneuronpopulations(Monkey,STRFstr)
                     # concatenate spike time series data of all selected neurons, sample equal number of trials for all conditions 
-                    AllSU_psth_trialBYtrial,AllSU_psth_condAve,psthCol,binedge = sampTrials(Monkey,Date)
+                    AllSU_psth_trialBYtrial,AllSU_psth_condAve,psthCol,binedge = sampTrials(Monkey,Date,alignKeys,df_avMod_all_sig)
                     # conduct targeted dimension reduction for the selected neural populations                                                   
                     psth_proj,condstrlist = conductTargDimRed(AllSU_psth_trialBYtrial,AllSU_psth_condAve,psthCol) #psth_proj: linregCond X time X condition
                     # add centered projection on each axis and at each time points separately, form psth_proj dataframe for meaningful avergaing across separate projections

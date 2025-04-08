@@ -11,12 +11,12 @@ import pandas as pd
 import json
 from eegUtilities import BalanceSamples
 from itertools import combinations
-cpus = 10
 from multiprocessing import Pool
 from scipy.optimize import curve_fit
 from matplotlib import pyplot as plt
 from matplotlib import gridspec
 from scipy.stats import zscore
+cpus = 10
 
 # from keras.utils import to_categorical
 import warnings
@@ -34,10 +34,10 @@ def applyweibullfit(x,y,threshx = 0.7,lapse=0):
         bounds_low = (-np.inf,0,0,0) # x value was shifted to positive, so threshold lowbound is 0
         bounds_hi = (0,np.inf,np.inf,np.inf)
     else:#slope is positive
-        # bounds_low = (0,0,0,0)
-        # bounds_hi = (np.inf,np.inf,np.inf,np.inf)       
-        bounds_low = (0,0,0.5,0.5)
-        bounds_hi = (np.inf,np.inf,1,1)
+        bounds_low = (0,0,0,0)
+        bounds_hi = (np.inf,np.inf,np.inf,np.inf)       
+        # bounds_low = (0,0,0.5,0.5)
+        # bounds_hi = (np.inf,np.inf,1,1)
 
     # Use curve fitting to find the best values for the parameters
     try:
@@ -229,38 +229,6 @@ def svmdecoder(xx_all,yy_all,method,traintestgrouplist = [],cpusSVM=cpus,kernel=
 
     # generating aligned bootstrap dim reduction components and visualization
     if len(method)>0:
-        if method['method'] =='bootstrapDR':
-            y_train = pd.DataFrame(y_train, columns=["label"])
-            y_test = pd.DataFrame(y_test, columns=["label"])
-            out_train = boot.generate(X_train, Y=y_train, method=method['DRmethod'], B=method['B'],\
-                                    random_seed=452, random_state=452,num_jobs = method['num_jobs'])
-            X_train_bootDR = out_train[out_train['bootstrap_number']>-1].iloc[:,0:2].values
-            y_train_bootDR = out_train[out_train['bootstrap_number']>-1].iloc[:,4].values
-            out_test = boot.generate(X_test, Y=y_test, method=method['DRmethod'], B=method['B'],\
-                                    random_seed=452, random_state=452,num_jobs = method['num_jobs'])
-            X_test_bootDR = out_test[out_test['bootstrap_number']>-1].iloc[:,0:2].values
-            y_test_bootDR = out_test[out_test['bootstrap_number']>-1].iloc[:,4].values 
-
-            preprocXX = pd.concat([out_train,out_test])
-            # make stacked visualization
-            plt.sca(method['axes'][0])
-            viz_modified.stacked(preprocXX[preprocXX['bootstrap_number']==-1], 'label', show=False, save=False,
-                            colors= method['colorstr'],xlabel="t-SNE 1", ylabel="t-SNE 2", dpi=150, marker="x", s=20, show_legend=False, solid_legend=True, cmap='hot',alpha=0.2)
-            plt.sca(method['axes'][1])
-            viz_modified.stacked(preprocXX[preprocXX['bootstrap_number']>-1], 'label', show=False, save=False,
-                            colors= method['colorstr'],xlabel="t-SNE 1", ylabel="t-SNE 2", dpi=150, marker="x", s=20, show_legend=False, solid_legend=True, cmap='hot',alpha=0.2)
-            # plot variance 
-            variance_scores = score.variance(out_train, method="random", k=50, normalize_pairwise_distance=True)
-            method['axes'][2].hist(variance_scores)
-            # plot concordance
-            # spearman correlation
-            concordance_scores = score.concordance(out_train, X_train, method="spearman", bootstrap_number=-1)
-            method['axes'][3].hist(concordance_scores)
-
-            X_train = X_train_bootDR
-            y_train = y_train_bootDR
-            X_test = X_test_bootDR
-            y_test = y_test_bootDR
         if method['method'] =='DR_pca':
             # Instantiate the PCA object 
             pca = PCA()
@@ -312,12 +280,6 @@ def svmdecoder(xx_all,yy_all,method,traintestgrouplist = [],cpusSVM=cpus,kernel=
 
     # classification metrics classification_report(y_test, y_pred, output_dict=True, target_names = target_names)
     fitresultdict['accuracy_score'] = accuracy_score(y_test, y_pred)
-    # fitresultdict['AUC'] = roc_auc_score(y_test, y_pred)
-
-    # if len(np.unique(yy))==2:
-    #     fitresultdict['roc_auc_score'] = roc_auc_score(y_test, gridsearch.predict_proba(X_test)[:,1]) 
-    # else:
-    #     fitresultdict['roc_auc_score'] = roc_auc_score(y_test, gridsearch.predict_proba(X_test),multi_class='ovo') 
     fitresultdict['accuracy_chance'] = np.max(np.unique(y_test,return_counts=True)[1]/np.sum(np.unique(y_test,return_counts=True)[1]))
     
     return fitresultdict
@@ -863,9 +825,6 @@ def decoder_SVM_detection_v1(AllSUspk_df_training,AllSUspk_df_testing,seeds,kern
 ##############################################################
 def decoder_decision(AllSUspk_df,catsdict,units=30,trainSample_eachCat = 200,testSample_eachCat = 50,bstimes=40,kernel=['rbf']): # randomly pick trials from each cluster across sessions, with replacement; use all clusters, parallel bootstrap process
     # # output 'fitacc_nNeuron': clsSamp X 1 X A/AV X bootstrapTimes 
-    clsall = list(AllSUspk_df.sess_cls.unique())
-    # print('clsall'+str(len(clsall)))
-
     fitacc_nNueron_dict = {}
     # initialize arrays to save decoding results
     print('Initializing arrays for results save..............')
@@ -896,7 +855,6 @@ def decoder_decision(AllSUspk_df,catsdict,units=30,trainSample_eachCat = 200,tes
 
 def decoderdecision1roundBStrials(AllSUspk_df,bs,units,catsdict,seeds,kernel=['rbf'],trainSample_eachCat=200,testSample_eachCat=50):
     print('decoding in bootstrape '+str(bs)+'.................')
-    # time1 = time.monotonic()
     ######## generate nonoverlap trials for training and testing set, 
     ####### activity of different neurons recorded in the same trial keep in the same set
     AllSUspk_df = AllSUspk_df.reset_index(drop=True)
@@ -933,13 +891,9 @@ def decoderdecision1roundBStrials(AllSUspk_df,bs,units,catsdict,seeds,kernel=['r
                                                                                                             AllSUspk_df_testing,
                                                                                                             catsdict,seeds,kernel,trainSample_eachCat,testSample_eachCat)
         test_cat = ['nan']
-    else:
-        # print(str(AllSUspk_df_training.groupby(by=['sess_cls','trialMod','snr','respLabel']).ngroups)+'_'
-        #       +str(AllSUspk_df_testing.groupby(by=['sess_cls','trialMod','snr','respLabel']).ngroups)+'  '
-        #       +str(len(clsall))+'  '+str(len(AllSUspk_df_training['sess_cls'].unique())))        
+    else:      
         raise ValueError('Mismatch cluster in training and testing data for the decoder!!')
     
-    # print('time spend to decode one time bootstrap '+str(bs)+' '+str(timedelta(seconds=time.monotonic() - time1)))
     return fitacc_nNueron_sig_a_temp,fitacc_nNueron_sig_a_temp_sh,\
         fit_coefs_sig_a_temp,test_cat,bs
 
