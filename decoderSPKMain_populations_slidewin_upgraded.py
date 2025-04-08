@@ -117,7 +117,7 @@ def decoderPlot(Monkey,namstrallSU,figtitle,xlimrange):
     plt.close(fig)
 
 
-MonkeyDate_all = {'Elay':['230420','230616']}#,,'230620'
+MonkeyDate_all = {'Elay':['230420','230616']}
 dataPathway = '/Users/caihuaizhen/Box Sync (huaizhen.cai@pennmedicine.upenn.edu)/Cohen Lab/Projects/MonkeyEEG/Fitresults/PSTHdataframe/'
 AVmodPathway = '/Users/caihuaizhen/Box Sync (huaizhen.cai@pennmedicine.upenn.edu)/Cohen Lab/Projects/MonkeyEEG/Fitresults/AVmodIndex/'
 ResPathway = '/Users/caihuaizhen/Box Sync (huaizhen.cai@pennmedicine.upenn.edu)/Cohen Lab/Projects/MonkeyEEG/Fitresults/decoder/'
@@ -137,9 +137,10 @@ baselinecorrectFlag = False
 noiseCR = ['spkRateCRa2']#['OnsetCRa','spkRateCRa','spkRateCRa1','spkRateCRa2','spkRateCRa3']
 binmethod = 'overlaptimwin' 
 bin = 200 #ms 
-bstimes = 2 #50
-resolutionred = 40 #10 # reduce temporal resolotion of the decoding by this scale, original temporal resolution:0.01
-units = 3 # number of neurons used for decoding 
+bstimes = 100 #50
+resolutionred = 5 #10 # reduce temporal resolotion of the decoding by this scale, original temporal resolution:0.01
+units = 30 # number of neurons used for populational decoding 
+
 # ##### decode data input filter and decode conditions           
 # inputPara ={'Elay':[
 #                 {'decodeCat':{'snr':['difficult','medium','easy']},'figtitle':'decode-SNR-AVoffset90-120',
@@ -147,7 +148,6 @@ units = 3 # number of neurons used for decoding
 #             'Wu':[
 #                 {'decodeCat':{'snr':['difficult','medium','easy']},'figtitle':'decode-SNR-AVoffset90-120',
 #                 'filterdict':{'trialMod':['a','av'],'respLabel':['hit'],'AVoffset':[90,120],'snr':['difficult','medium','easy']}}]}                  
-
 inputPara ={
             'Elay':{
                 'decodeCat':{'trialMod':['a','av']},'figtitle':'decodeMod-AVoffset90-SNRdiff',
