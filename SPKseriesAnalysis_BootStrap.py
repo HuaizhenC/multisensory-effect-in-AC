@@ -12,8 +12,6 @@ from spikeUtilities import decodrespLabel2str,SortfilterDF
 from sharedparam import getMonkeyDate_all,neuronfilterDF
 import random
 
-###########Targeted	dimensionality reduction adapted from this paper: https://www.nature.com/articles/nature12742
-
 #pick random neurons from all neurons recorded from one monkey
 def pickneuronpopulations(Monkey,STRFstr):
     clsInfo,_ = pickle.load(open(wavformPathway+'AllUnits_spkwavform_Wuless.pkl','rb')) 
