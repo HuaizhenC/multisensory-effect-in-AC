@@ -27,6 +27,63 @@ def pickneuronpopulations(Monkey,STRFstr):
     # print(Monkey+' '+STRFstr)
     # print(df_avMod_all_sig_unique.groupby('STRFsig').size().to_string())
     return df_avMod_all_sig
+# sample trials of each condition for each neuron
+def sampTrials(Monkey,Date):
+    # initialize dataframe to save psth time series data of each neuron
+    AllSU_psth_condAve = pd.DataFrame()
+    AllSU_psth_trialBYtrial = pd.DataFrame()
+    for Date_temp in Date: 
+        print('session date:'+Date_temp)
+        ######## columns in rawPSTH_df ['Monkey','sess','cls','respLabel','AVoffset', 'snr', 'trialMod', 'snr-shift', 'trialNum','baselineFR']+frate
+        ######## modify line106-107 in reshapePSTH when switch input files
+        rawPSTH_df_all = pickle.load(open(Pathway+Monkey+'_'+Date_temp+'_allSU+MUA_alltri'+alignKeys+'_nonoverlaptimwin_50msbinRawPSTH_df.pkl','rb'))  # Nneurons X clsSamp X trials X bootstrapTimes
+        psthCol_all  = [s for s in list(rawPSTH_df_all.columns) if 'frate' in s]
+
+        # get clips of psth during window defined by timwinStart 
+        binedge_all = np.arange(-1.5,0,bin) #align2coo psth window is [-1,1] align2js psth window is [-1.5,0]                       
+        frateNO = np.arange(min(range(len(binedge_all)), key=lambda i: abs(binedge_all[i] - timwinStart[0])) ,
+                            min(range(len(binedge_all)), key=lambda i: abs(binedge_all[i] - timwinStart[1]))+1,1)     
+        psthCol =  [s for s in psthCol_all if float(s[5:]) in frateNO]
+        binedge = binedge_all[frateNO]
+        rawPSTH_df = rawPSTH_df_all.drop(columns=list(set(psthCol_all)-set(psthCol)))
+        #filter trial conditions 
+        rawPSTH_df_temp,_ = SortfilterDF(decodrespLabel2str(rawPSTH_df),filterlable =filterdict)  # filter out trials 
+        
+        # preprocess each cls separately in the current session 
+        sess_cls_namelist = list(df_avMod_all_sig[df_avMod_all_sig['session']==Date_temp]['cls'])
+        for cc,cls in enumerate(sess_cls_namelist):                         
+            rawPSTH_df_temp_cls = rawPSTH_df_temp[rawPSTH_df_temp['cls']==cls].copy().reset_index()
+            # in case sample the same cluster multiple times, so add differentiation here
+            clnamenew = cls+'_'+str(cc)
+            rawPSTH_df_temp_cls['cls'] = clnamenew 
+            # if need to balance trials across conditions by bootstrapping  
+            if balanceSamples:                           
+                rawPSTH_df_temp_cls = rawPSTH_df_temp_cls.groupby(by=['sess','cls','trialMod','snr','respLabel','AVoffset']).sample(50,random_state=random.randint(1, 10000),replace=True) 
+
+            # zscored psth of the current cluster for each trial
+            rawPSTH_df_temp_cls_tbyt = rawPSTH_df_temp_cls.copy()
+            rawPSTH_df_temp_cls_tbyt[psthCol] = (rawPSTH_df_temp_cls_tbyt[psthCol] - rawPSTH_df_temp_cls_tbyt[psthCol].mean(skipna=True))\
+                                                    /rawPSTH_df_temp_cls_tbyt[psthCol].std(skipna=True)
+            # concatenate trial by trial psth of all clusters
+            AllSU_psth_trialBYtrial = pd.concat([AllSU_psth_trialBYtrial,rawPSTH_df_temp_cls_tbyt])  
+
+            # average psth of the current cluster in each condition
+            psth_df_CondAve = rawPSTH_df_temp_cls.groupby(psthGroupCols)[psthCol].mean().reset_index().sort_values(by=psthGroupCols)
+            # gaussian smooth averaged psth , sigma=40ms , binlen 50ms 
+            psth_df_CondAve[psthCol] = gaussian_filter1d(psth_df_CondAve[psthCol].values, sigma=0.8, axis=-1)            
+            # zscore averaged psth of the current cluster
+            psth_df_CondAve[psthCol] = (psth_df_CondAve[psthCol]-psth_df_CondAve[psthCol].mean(skipna=True))\
+                                        /psth_df_CondAve[psthCol].std(skipna=True)
+            # transfer averaged psth of the current cluster in one row dataframe
+            colnames = []
+            for (_,dfrow) in psth_df_CondAve[psthGroupCols].iterrows():
+                colnames = colnames+['_'.join([str(vv) for vv in list(dfrow.values)])+'_'+tt for tt in psthCol]
+            psth_concate_df = pd.DataFrame(psth_df_CondAve[psthCol].values.reshape(1,-1),columns=colnames)        
+            # concatenate condition averaged psth of all clusters
+            info_temp_df = pd.DataFrame({'Monkey':[Monkey],'sess':[Date_temp],'cls':[clnamenew]})  
+            AllSU_psth_condAve = pd.concat([AllSU_psth_condAve,pd.concat([info_temp_df,psth_concate_df],axis=1) ],axis=0) 
+    return AllSU_psth_trialBYtrial,AllSU_psth_condAve,psthCol,binedge
+
 # get denoised coefficients of IVs for each cls
 def getBeta(AllSU_psth_trialBYtrial,linregCols,psthCol,denoiseMat,AllSU_psth_condAve):
     #get coefficients of IVs of linear regression on PSTH for each cls
@@ -144,7 +201,74 @@ def formdf(psth_proj,linregCols,condstrlist,binedge,bsref='off'):
         psth_proj_df = pd.concat([psth_proj_df,psth_proj_df_ttall])
    
     return psth_proj_df 
+# plot trajectories for each monkey
+def plot2DTraj(psth_proj_df_BSall,namstrallSU):
+    ################### plot projection on the av axis difference between a and av condition separatly for each SNR level, combine the same monkey's plot in one plot
+    fig, axess = plt.subplots(2,1,figsize=(8,8),sharex='col',sharey='col')  
+    psth_proj_df_BSall_av = psth_proj_df_BSall.copy() 
+    psth_proj_df_BSall_av['snr'] = psth_proj_df_BSall_av['snr'].replace({-15:'difficult',-10:'difficult',-5:'medium',0:'medium',5:'easy',10:'easy'})
+    psth_proj_df_BSall_mean = psth_proj_df_BSall_av.groupby(by=['Monkey','time','mod','resp','bs','shuffled','snr'])[['trialMod']].mean().reset_index()
+    snrcolor = ['limegreen','orange','lightcoral'] # in the order of 'easy','medium','difficult'
+    psth_proj_mod_a = psth_proj_df_BSall_mean[psth_proj_df_BSall_mean['mod']=='a'].sort_values(by=['Monkey','time','resp','bs','snr'])
+    psth_proj_mod_av = psth_proj_df_BSall_mean[psth_proj_df_BSall_mean['mod']=='av'].sort_values(by=['Monkey','time','resp','bs','snr'])
+    psth_proj_moddiff_snr = psth_proj_mod_a[['Monkey','time','resp','bs','snr','shuffled']].copy()
+    psth_proj_moddiff_snr['trialModDiff'] = np.abs(psth_proj_mod_a['trialMod'].values-psth_proj_mod_av['trialMod'].values)
 
+    for mm,monk in enumerate(list(psth_proj_moddiff_snr.Monkey.unique())):
+        psth_proj_moddiff_mm = psth_proj_moddiff_snr[(psth_proj_moddiff_snr['Monkey']==monk)&(psth_proj_moddiff_snr['shuffled']=='true label')]
+
+        font_properties = {'fontname': fontnameStr, 'fontsize': fontsizeNo-4}
+        sns.lineplot(psth_proj_moddiff_mm,x='time',y='trialModDiff',hue='snr',hue_order=['easy','medium','difficult'],palette=snrcolor,ax=axess[mm],estimator='mean', errorbar=('ci', 95))                              
+        axess[mm].set_xlabel('Time (s; relative to audiory target onset)',**font_properties)
+        axess[mm].text(0.25, 0.9, 'monkey '+monk[0], 
+                    transform=axess[mm].transAxes,  # Specify the position in axis coordinates
+                    fontsize=fontsizeNo-4,             # Font size
+                    fontname=fontnameStr,
+                    verticalalignment='top', # Align text at the top
+                    horizontalalignment='right') # Align text to the right
+        axess[mm].legend(frameon=False, loc='upper right', bbox_to_anchor=(1, 1.03), title='SNR', fontsize=fontsizeNo-6, title_fontsize=fontsizeNo-4)
+        axess[mm].plot([0,0],[0,2],linestyle='--',color='black')  
+        axess[mm].plot([-0.52,-0.52],[0,1.5],linestyle='--',color='gray')         
+        axess[mm].set_ylabel('A/AV separation',**font_properties)
+        axess[mm].tick_params(axis='both', which='major', labelsize=fontsizeNo-4) 
+    fig.savefig(figSavePath+'Popprjcton_ModalityAxis_A-AVdistanceBYsnr_'+namstrallSU+'_2monk_2swin.'+figformat)
+    plt.close(fig)
+
+    ################### plot projection on the snr axis
+    fig, axess = plt.subplots(2,1,figsize=(8,8),sharex='col',sharey='col')  
+    font_properties = {'fontname': fontnameStr, 'fontsize': fontsizeNo-4}
+    ycolnames = 'snr-shift_bscrct' #'snr-shift','snr-shift_bscrct','snr-slope'
+    snrcolor = ['limegreen','orange','lightcoral'] # in the order of 'easy','medium','difficult'
+    psth_proj_df_BSall_temp = psth_proj_df_BSall.copy()
+    psth_proj_df_BSall_temp['snr'] = psth_proj_df_BSall_temp['snr'].replace({-15:'difficult',-10:'difficult',-5:'medium',0:'medium',5:'easy',10:'easy'})
+    psth_proj_df_BSsnr = psth_proj_df_BSall_temp.groupby(by=['Monkey','time','snr','bs','shuffled'])[ycolnames].mean().reset_index().reset_index(drop=True)
+
+    for mm, monk in enumerate(list(psth_proj_df_BSsnr.Monkey.unique())):
+        psth_proj_df_BSsnr_monk = psth_proj_df_BSsnr[(psth_proj_df_BSsnr['Monkey']==monk)&(psth_proj_df_BSsnr['shuffled']=='true label')].reset_index()
+        sns.lineplot(psth_proj_df_BSsnr_monk,x='time',y=ycolnames,hue='snr',
+                    hue_order=['easy','medium','difficult'],palette=snrcolor,
+                    ax=axess[mm],estimator='mean', errorbar=('ci', 95)) 
+        psth_proj_df_BSsnr_E_shuffled = psth_proj_df_BSsnr[(psth_proj_df_BSsnr['Monkey']==monk)&(psth_proj_df_BSsnr['shuffled']=='shuffled label')].groupby(by=['time','bs'])[['snr-shift_bscrct']].mean().reset_index()
+        sns.lineplot(psth_proj_df_BSsnr_E_shuffled,x='time',y=ycolnames,color='gray',
+                    ax=axess[mm],estimator='mean', errorbar=('ci', 95))                    
+        # Add a manual legend entry for the gray shuffled plot
+        handles, labels = axess[mm].get_legend_handles_labels()
+        handles.append(plt.Line2D([0], [0], color='gray', label='Shuffled'))
+        labels.append('shuffled')
+        # Add the combined legend to the plot
+        axess[mm].set_xlabel('Time (s; relative to audiory target onset)',**font_properties)
+        axess[mm].legend(handles=handles, labels=labels,frameon=False, loc='upper right', bbox_to_anchor=(1, 1.03), title='SNR', fontsize=fontsizeNo-6, title_fontsize=fontsizeNo-4)
+        axess[mm].plot([0,0],[-2,8],linestyle='--',color='black')  
+        axess[mm].text(0.25, 0.9, 'monkey '+monk[0], 
+                    transform=axess[mm].transAxes,  # Specify the position in axis coordinates
+                    fontsize=fontsizeNo-4,             # Font size
+                    fontname=fontnameStr,
+                    verticalalignment='top', # Align text at the top
+                    horizontalalignment='right') # Align text to the right                
+        axess[mm].set_ylabel('Distance to -15 dB',**font_properties)
+        axess[mm].tick_params(axis='both', which='major', labelsize=fontsizeNo-4) 
+    fig.savefig(figSavePath+'Popprjcton_SNRAxis_'+namstrallSU+'_2swin.'+figformat)
+    plt.close(fig)     
 
 # debug in local pc
 MonkeyDate_all = {'Elay':['230420','230616']}
@@ -167,7 +291,7 @@ wavformPathway = '/Users/caihuaizhen/Box Sync (huaizhen.cai@pennmedicine.upenn.e
 
 #################################bootstrap parameters
 balanceSamples = True # whether balance samples across conditions by adding bootstraped samples to each condition
-popSampTimes =100
+popSampTimes =5
 resolutionred = 5 # reduce temporal resolotion of the decoding by this scale, original temporal resolution:0.01
 # 2 task related variables
 psthGroupCols = ['trialMod','snr-shift']
@@ -184,73 +308,16 @@ figformat = 'svg'
 start_time = time.monotonic()
 if __name__ == '__main__':
     for alignKeys in ['_align2coo']: # '_align2coo' '_align2DT' '_align2js'
-        snr_moddiff_peakAlignment_all = pd.DataFrame()
-        for STRFstr in ['all','notsig','sig',]:#['all','notsig','sig']:   
+        for STRFstr in ['notsig','sig',]:#['all','notsig','sig']:   
             namstrallSU = alignKeys+'_Hit=A+AV_ttestfilteredUnits_ProjonModXsnr_STRF'+ STRFstr+'_spkwavShape-all_nonoverlaptimwin50msbinRawPSTH'+'_AVoffset90+120'+'_sample30noreplacement_lessWu-sess'       
             psth_proj_df_BSall = pd.DataFrame()
             for bs in range(popSampTimes):
                 for Monkey,Date in MonkeyDate_all.items():    
-                    # randomly pick 30 nuerons from the current monkey
+                    # randomly pick 30 strf/nstrf nuerons from the current monkey
                     df_avMod_all_sig = pickneuronpopulations(Monkey,STRFstr)
-                    
-                    # initialize dataframe to save psth time series data of each neuron
-                    AllSU_psth_condAve = pd.DataFrame()
-                    AllSU_psth_trialBYtrial = pd.DataFrame()
-
-                    for Date_temp in Date: 
-                        print('session date:'+Date_temp)
-                        ######## columns in rawPSTH_df ['Monkey','sess','cls','respLabel','AVoffset', 'snr', 'trialMod', 'snr-shift', 'trialNum','baselineFR']+frate
-                        ######## modify line106-107 in reshapePSTH when switch input files
-                        rawPSTH_df_all = pickle.load(open(Pathway+Monkey+'_'+Date_temp+'_allSU+MUA_alltri'+alignKeys+'_nonoverlaptimwin_50msbinRawPSTH_df.pkl','rb'))  # Nneurons X clsSamp X trials X bootstrapTimes
-                        psthCol_all  = [s for s in list(rawPSTH_df_all.columns) if 'frate' in s]
-
-                        # get clips of psth during window defined by timwinStart 
-                        binedge_all = np.arange(-1.5,0,bin) #align2coo psth window is [-1,1] align2js psth window is [-1.5,0]                       
-                        frateNO = np.arange(min(range(len(binedge_all)), key=lambda i: abs(binedge_all[i] - timwinStart[0])) ,
-                                            min(range(len(binedge_all)), key=lambda i: abs(binedge_all[i] - timwinStart[1]))+1,1)     
-                        psthCol =  [s for s in psthCol_all if float(s[5:]) in frateNO]
-                        binedge = binedge_all[frateNO]
-                        rawPSTH_df = rawPSTH_df_all.drop(columns=list(set(psthCol_all)-set(psthCol)))
-                        #filter trial conditions 
-                        rawPSTH_df_temp,_ = SortfilterDF(decodrespLabel2str(rawPSTH_df),filterlable =filterdict)  # filter out trials 
-                        
-                        # preprocess each cls separately in the current session 
-                        sess_cls_namelist = list(df_avMod_all_sig[df_avMod_all_sig['session']==Date_temp]['cls'])
-                        for cc,cls in enumerate(sess_cls_namelist):                         
-                            rawPSTH_df_temp_cls = rawPSTH_df_temp[rawPSTH_df_temp['cls']==cls].copy().reset_index()
-                            # in case sample the same cluster multiple times, so add differentiation here
-                            clnamenew = cls+'_'+str(cc)
-                            rawPSTH_df_temp_cls['cls'] = clnamenew 
-                            df_avMod_sess_temp = df_avMod_all_sig[df_avMod_all_sig['session_cls']==Date_temp+'_'+cls]                    
-                            # if need to balance trials across conditions by bootstrapping  
-                            if balanceSamples:                           
-                                rawPSTH_df_temp_cls = rawPSTH_df_temp_cls.groupby(by=['sess','cls','trialMod','snr','respLabel','AVoffset']).sample(50,random_state=random.randint(1, 10000),replace=True) 
-
-                            ############process trial label ordered the same as in the task 
-                            # zscored psth of the current cluster for each trial
-                            rawPSTH_df_temp_cls_tbyt = rawPSTH_df_temp_cls.copy()
-                            rawPSTH_df_temp_cls_tbyt[psthCol] = (rawPSTH_df_temp_cls_tbyt[psthCol] - rawPSTH_df_temp_cls_tbyt[psthCol].mean(skipna=True))\
-                                                                    /rawPSTH_df_temp_cls_tbyt[psthCol].std(skipna=True)
-                            # concatenate trial by trial psth of all clusters
-                            AllSU_psth_trialBYtrial = pd.concat([AllSU_psth_trialBYtrial,rawPSTH_df_temp_cls_tbyt])  
-
-                            # average psth of the current cluster of all trials in each condition
-                            psth_df_CondAve = rawPSTH_df_temp_cls.groupby(psthGroupCols)[psthCol].mean().reset_index().sort_values(by=psthGroupCols)
-                            # gaussian smooth averaged psth , sigma=40ms , binlen 50ms 
-                            psth_df_CondAve[psthCol] = gaussian_filter1d(psth_df_CondAve[psthCol].values, sigma=0.8, axis=-1)            
-                            # zscore averaged psth of the current cluster
-                            psth_df_CondAve[psthCol] = (psth_df_CondAve[psthCol]-psth_df_CondAve[psthCol].mean(skipna=True))\
-                                                        /psth_df_CondAve[psthCol].std(skipna=True)
-                            # transfer averaged psth of the current cluster in one row dataframe
-                            colnames = []
-                            for (_,dfrow) in psth_df_CondAve[psthGroupCols].iterrows():
-                                colnames = colnames+['_'.join([str(vv) for vv in list(dfrow.values)])+'_'+tt for tt in psthCol]
-                            psth_concate_df = pd.DataFrame(psth_df_CondAve[psthCol].values.reshape(1,-1),columns=colnames)        
-                            # concatenate condition averaged psth of all clusters
-                            info_temp_df = pd.DataFrame({'Monkey':[Monkey],'sess':[Date_temp],'cls':[clnamenew]})  
-                            AllSU_psth_condAve = pd.concat([AllSU_psth_condAve,pd.concat([info_temp_df,psth_concate_df],axis=1) ],axis=0) 
-                                                                        
-                    print('cls total: '+str(AllSU_psth_condAve.groupby(['sess','cls']).size().reset_index().shape[0]))
+                    # concatenate spike time series data of all selected neurons, sample equal number of trials for all conditions 
+                    AllSU_psth_trialBYtrial,AllSU_psth_condAve,psthCol,binedge = sampTrials(Monkey,Date)
+                    # conduct targeted dimension reduction for the selected neural populations                                                   
                     psth_proj,condstrlist = conductTargDimRed(AllSU_psth_trialBYtrial,AllSU_psth_condAve,psthCol) #psth_proj: linregCond X time X condition
                     # add centered projection on each axis and at each time points separately, form psth_proj dataframe for meaningful avergaing across separate projections
                     psth_proj_df = formdf(psth_proj,linregCols,condstrlist,binedge,bsref='on')
@@ -261,78 +328,11 @@ if __name__ == '__main__':
                     psth_proj_df_2comb['bs'] = bs
                     psth_proj_df_2comb['Monkey'] = Monkey
                     psth_proj_df_BSall = pd.concat([psth_proj_df_BSall,psth_proj_df_2comb]) 
-
             pickle.dump(psth_proj_df_BSall,open(ResPathway+'twoMonk_bs_2swin'+namstrallSU+'.pkl','wb'))                               
-            psth_proj_df_BSall = pickle.load(open(ResPathway+'twoMonk_bs_2swin'+namstrallSU+'.pkl','rb'))  # Nneurons X clsSamp X trials X bootstrapTimes
-
-            ################### plot projection on the av axis difference between a and av condition separatly for each SNR level, combine the same monkey's plot in one plot
-            fig, axess = plt.subplots(2,1,figsize=(8,8),sharex='col',sharey='col')  
-            psth_proj_df_BSall_av = psth_proj_df_BSall.copy() 
-            psth_proj_df_BSall_av['snr'] = psth_proj_df_BSall_av['snr'].replace({-15:'difficult',-10:'difficult',-5:'medium',0:'medium',5:'easy',10:'easy'})
-            psth_proj_df_BSall_mean = psth_proj_df_BSall_av.groupby(by=['Monkey','time','mod','resp','bs','shuffled','snr'])[['trialMod']].mean().reset_index()
-            snrcolor = ['limegreen','orange','lightcoral'] # in the order of 'easy','medium','difficult'
-            psth_proj_mod_a = psth_proj_df_BSall_mean[psth_proj_df_BSall_mean['mod']=='a'].sort_values(by=['Monkey','time','resp','bs','snr'])
-            psth_proj_mod_av = psth_proj_df_BSall_mean[psth_proj_df_BSall_mean['mod']=='av'].sort_values(by=['Monkey','time','resp','bs','snr'])
-            psth_proj_moddiff_snr = psth_proj_mod_a[['Monkey','time','resp','bs','snr','shuffled']].copy()
-            psth_proj_moddiff_snr['trialModDiff'] = np.abs(psth_proj_mod_a['trialMod'].values-psth_proj_mod_av['trialMod'].values)
-
-            for mm,monk in enumerate(list(psth_proj_moddiff_snr.Monkey.unique())):
-                psth_proj_moddiff_mm = psth_proj_moddiff_snr[(psth_proj_moddiff_snr['Monkey']==monk)&(psth_proj_moddiff_snr['shuffled']=='true label')]
-
-                font_properties = {'fontname': fontnameStr, 'fontsize': fontsizeNo-4}
-                sns.lineplot(psth_proj_moddiff_mm,x='time',y='trialModDiff',hue='snr',hue_order=['easy','medium','difficult'],palette=snrcolor,ax=axess[mm],estimator='mean', errorbar=('ci', 95))                              
-                axess[mm].set_xlabel('Time (s; relative to audiory target onset)',**font_properties)
-                axess[mm].text(0.25, 0.9, 'monkey '+monk[0], 
-                            transform=axess[mm].transAxes,  # Specify the position in axis coordinates
-                            fontsize=fontsizeNo-4,             # Font size
-                            fontname=fontnameStr,
-                            verticalalignment='top', # Align text at the top
-                            horizontalalignment='right') # Align text to the right
-                axess[mm].legend(frameon=False, loc='upper right', bbox_to_anchor=(1, 1.03), title='SNR', fontsize=fontsizeNo-6, title_fontsize=fontsizeNo-4)
-                axess[mm].plot([0,0],[0,2],linestyle='--',color='black')  
-                axess[mm].plot([-0.52,-0.52],[0,1.5],linestyle='--',color='gray')         
-                axess[mm].set_ylabel('A/AV separation',**font_properties)
-                axess[mm].tick_params(axis='both', which='major', labelsize=fontsizeNo-4) 
-            fig.savefig(figSavePath+'Popprjcton_ModalityAxis_A-AVdistanceBYsnr_'+namstrallSU+'_2monk_2swin.'+figformat)
-            plt.close(fig)
-
-            ################### plot projection on the snr axis
-            fig, axess = plt.subplots(2,1,figsize=(8,8),sharex='col',sharey='col')  
-            font_properties = {'fontname': fontnameStr, 'fontsize': fontsizeNo-4}
-            ycolnames = 'snr-shift_bscrct' #'snr-shift','snr-shift_bscrct','snr-slope'
-            snrcolor = ['limegreen','orange','lightcoral'] # in the order of 'easy','medium','difficult'
-            psth_proj_df_BSall_temp = psth_proj_df_BSall.copy()
-            psth_proj_df_BSall_temp['snr'] = psth_proj_df_BSall_temp['snr'].replace({-15:'difficult',-10:'difficult',-5:'medium',0:'medium',5:'easy',10:'easy'})
-            psth_proj_df_BSsnr = psth_proj_df_BSall_temp.groupby(by=['Monkey','time','snr','bs','shuffled'])[ycolnames].mean().reset_index().reset_index(drop=True)
-
-            for mm, monk in enumerate(list(psth_proj_df_BSsnr.Monkey.unique())):
-                psth_proj_df_BSsnr_monk = psth_proj_df_BSsnr[(psth_proj_df_BSsnr['Monkey']==monk)&(psth_proj_df_BSsnr['shuffled']=='true label')].reset_index()
-                sns.lineplot(psth_proj_df_BSsnr_monk,x='time',y=ycolnames,hue='snr',
-                            hue_order=['easy','medium','difficult'],palette=snrcolor,
-                            ax=axess[mm],estimator='mean', errorbar=('ci', 95)) 
-                psth_proj_df_BSsnr_E_shuffled = psth_proj_df_BSsnr[(psth_proj_df_BSsnr['Monkey']==monk)&(psth_proj_df_BSsnr['shuffled']=='shuffled label')].groupby(by=['time','bs'])[['snr-shift_bscrct']].mean().reset_index()
-                sns.lineplot(psth_proj_df_BSsnr_E_shuffled,x='time',y=ycolnames,color='gray',
-                            ax=axess[mm],estimator='mean', errorbar=('ci', 95))                    
-                # Add a manual legend entry for the gray shuffled plot
-                handles, labels = axess[mm].get_legend_handles_labels()
-                handles.append(plt.Line2D([0], [0], color='gray', label='Shuffled'))
-                labels.append('shuffled')
-                # Add the combined legend to the plot
-                axess[mm].set_xlabel('Time (s; relative to audiory target onset)',**font_properties)
-                axess[mm].legend(handles=handles, labels=labels,frameon=False, loc='upper right', bbox_to_anchor=(1, 1.03), title='SNR', fontsize=fontsizeNo-6, title_fontsize=fontsizeNo-4)
-                axess[mm].plot([0,0],[-2,8],linestyle='--',color='black')  
-                axess[mm].text(0.25, 0.9, 'monkey '+monk[0], 
-                            transform=axess[mm].transAxes,  # Specify the position in axis coordinates
-                            fontsize=fontsizeNo-4,             # Font size
-                            fontname=fontnameStr,
-                            verticalalignment='top', # Align text at the top
-                            horizontalalignment='right') # Align text to the right                
-                axess[mm].set_ylabel('Distance to -15 dB',**font_properties)
-                axess[mm].tick_params(axis='both', which='major', labelsize=fontsizeNo-4) 
-            fig.savefig(figSavePath+'Popprjcton_SNRAxis_'+namstrallSU+'_2swin.'+figformat)
-            plt.close(fig) 
-                             
-
+            psth_proj_df_BSall = pickle.load(open(ResPathway+'twoMonk_bs_2swin'+namstrallSU+'.pkl','rb'))  # psth_proj_df_BSall rows=Nneurons X clsSamp X trials X bootstrapTimes
+            # plot projections on snr axis and condition axis for each monkey separately
+            plot2DTraj(psth_proj_df_BSall,namstrallSU)
+                            
 times2 = time.monotonic()
 print('total time spend for 2 monkeys:')
 print(timedelta(seconds= times2- start_time)) 
