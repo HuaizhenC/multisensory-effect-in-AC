@@ -11,6 +11,7 @@ from sklearn.linear_model import LinearRegression
 from spikeUtilities import decodrespLabel2str,SortfilterDF
 from sharedparam import getMonkeyDate_all,neuronfilterDF
 import random
+cpus = 10
 
 #pick random neurons from all neurons recorded from one monkey
 def pickneuronpopulations(Monkey,STRFstr):
