@@ -83,7 +83,6 @@ def sampTrials(Monkey,Date):
             info_temp_df = pd.DataFrame({'Monkey':[Monkey],'sess':[Date_temp],'cls':[clnamenew]})  
             AllSU_psth_condAve = pd.concat([AllSU_psth_condAve,pd.concat([info_temp_df,psth_concate_df],axis=1) ],axis=0) 
     return AllSU_psth_trialBYtrial,AllSU_psth_condAve,psthCol,binedge
-
 # get denoised coefficients of IVs for each cls
 def getBeta(AllSU_psth_trialBYtrial,linregCols,psthCol,denoiseMat,AllSU_psth_condAve):
     #get coefficients of IVs of linear regression on PSTH for each cls
