@@ -15,9 +15,9 @@ cpus = 10
 
 #pick random neurons from all neurons recorded from one monkey
 def pickneuronpopulations(Monkey,STRFstr):
+    # filter neurons based on different rules
     clsInfo,_ = pickle.load(open(wavformPathway+'AllUnits_spkwavform_Wuless.pkl','rb')) 
     clsInfo_temp = clsInfo[clsInfo['Monkey']==Monkey]                   
-    # filter neurons based on different rules
     df_avMod_all_sig_ori,_ = neuronfilterDF(AVmodPathway,STRFexcelPath,'ttest',Monkey,STRF=STRFstr)
     df_avMod_all_sig_ori = df_avMod_all_sig_ori[df_avMod_all_sig_ori['session_cls'].isin(clsInfo_temp.session_cls.values)]
     # randomly pick clusters  
